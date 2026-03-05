@@ -1,3 +1,5 @@
+_TITLE "bmathic"
+
 RANDOMIZE TIMER
 
 DIM SHARED nums(4) ' 1..4
