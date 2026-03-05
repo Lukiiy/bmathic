@@ -1,0 +1,85 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  QB64_VERSION: "v2.0.2"
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: qb64_2021-11-07-02-59-19_4d85302_lnx.tar.gz
+          - os: windows-latest
+            asset: qb64_2021-11-07-02-59-30_4d85302_win-x64.zip
+
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Restore cache
+        id: cache-qb64
+        uses: actions/cache@v5.0.3
+        with:
+          path: qb64
+          key: qb64-${{ env.QB64_VERSION }}-${{ matrix.os }}
+
+      - name: Get QB64
+        if: steps.cache-qb64.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://github.com/QB64Team/qb64/releases/download/${QB64_VERSION}/${{ matrix.asset }}"
+          curl -fsSL -o qb64_asset "$URL"
+          mkdir -p qb64
+
+          if [[ "${{ matrix.asset }}" == *.zip ]]; then
+            unzip -q qb64_asset -d qb64
+          else
+            tar -xzf qb64_asset -C qb64
+          fi
+
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SETUP=$(find qb64 -type f -name setup_lnx.sh -print -quit || true)
+
+          if [[ -n "$SETUP" ]]; then
+            (cd "$(dirname "$SETUP")" && chmod +x setup_lnx.sh && ./setup_lnx.sh)
+          fi
+
+          QB_BIN=$(find qb64 -type f -name qb64 -print -quit)
+
+          chmod +x "$QB_BIN"
+          "$QB_BIN" -x "$GITHUB_WORKSPACE/bmathic.bas"
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $qb = Get-ChildItem -Path qb64 -Recurse -Filter qb64.exe -File | Select-Object -First 1
+
+          if (-not $qb) {
+            throw "qb64.exe not found"
+          }
+
+          Start-Process -FilePath $qb.FullName -ArgumentList '-x','bmathic.bas' -WorkingDirectory $env:GITHUB_WORKSPACE -NoNewWindow -Wait
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-${{ matrix.os }}
+          path: |
+            qb64/qb64/bmathic
+            qb64/qb64/bmathic.exe
